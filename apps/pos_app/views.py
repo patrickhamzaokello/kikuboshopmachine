@@ -7,7 +7,6 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Count, Sum
-from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 
 from . import models
@@ -21,6 +20,18 @@ from .serializers import (
     SyncLogSerializer, UserDeviceSerializer, ProductSyncSerializer,
     ProductBulkSearchSerializer
 )
+
+from django.shortcuts import render, redirect
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib import messages
+from django.http import HttpResponse
+from django.utils import timezone
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+import openpyxl
+from decimal import Decimal, InvalidOperation
+from django.db import transaction
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -450,3 +461,377 @@ class UserDeviceViewSet(viewsets.ModelViewSet):
         device.save()
 
         return Response({'message': 'Device activated successfully'})
+
+
+@staff_member_required
+def download_product_template(request):
+    """
+    Download Excel template for bulk product upload
+    """
+    # Create workbook
+    wb = Workbook()
+
+    # Instructions Sheet
+    ws_instructions = wb.active
+    ws_instructions.title = "Instructions"
+
+    # Header styling
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=12)
+
+    # Instructions content
+    instructions = [
+        ["KIKUBO POS - BULK PRODUCT UPLOAD TEMPLATE"],
+        [""],
+        ["INSTRUCTIONS:"],
+        ["1. Fill in the 'Products' sheet with your product data"],
+        ["2. Do not modify column headers"],
+        ["3. All fields marked with * are REQUIRED"],
+        ["4. Barcode and SKU must be unique"],
+        ["5. Prices must be positive numbers"],
+        ["6. Category must match existing category names (see Categories sheet)"],
+        ["7. Set 'is_active' to TRUE or FALSE"],
+        ["8. Save the file and upload it through the admin panel"],
+        [""],
+        ["FIELD DESCRIPTIONS:"],
+        [""],
+        ["Field", "Required", "Description", "Example"],
+        ["name", "YES", "Product name", "Coca Cola 500ml"],
+        ["barcode", "YES", "Unique barcode number", "5449000000996"],
+        ["sku", "YES", "Unique SKU code", "COKE-500"],
+        ["category", "NO", "Category name (must exist)", "Beverages"],
+        ["description", "NO", "Product description", "Refreshing cola drink"],
+        ["retail_price", "YES", "Selling price to customers", "2500"],
+        ["wholesale_price", "YES", "Bulk/wholesale price", "2000"],
+        ["cost_price", "YES", "Your cost/purchase price", "1500"],
+        ["quantity_in_stock", "YES", "Initial stock quantity", "100"],
+        ["reorder_level", "NO", "Low stock alert level (default: 10)", "20"],
+        ["is_active", "NO", "Product active status (default: TRUE)", "TRUE"],
+    ]
+
+    # Write instructions
+    for row_idx, row_data in enumerate(instructions, 1):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_instructions.cell(row=row_idx, column=col_idx, value=value)
+
+            if row_idx == 1:  # Title
+                cell.font = Font(bold=True, size=14, color="4472C4")
+            elif row_idx == 3 or row_idx == 10:  # Section headers
+                cell.font = Font(bold=True, size=12)
+            elif row_idx == 15:  # Table header
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Adjust column widths
+    ws_instructions.column_dimensions['A'].width = 20
+    ws_instructions.column_dimensions['B'].width = 15
+    ws_instructions.column_dimensions['C'].width = 50
+    ws_instructions.column_dimensions['D'].width = 25
+
+    # Products Sheet
+    ws_products = wb.create_sheet("Products")
+
+    # Headers
+    headers = [
+        "name*", "barcode*", "sku*", "category", "description",
+        "retail_price*", "wholesale_price*", "cost_price*",
+        "quantity_in_stock*", "reorder_level", "is_active"
+    ]
+
+    # Write headers with styling
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws_products.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Add sample data
+    sample_data = [
+        [
+            "Sample Product 1",
+            "1234567890123",
+            "SAMPLE-001",
+            "Electronics",
+            "This is a sample product description",
+            "15000",
+            "12000",
+            "8000",
+            "50",
+            "10",
+            "TRUE"
+        ],
+        [
+            "Sample Product 2",
+            "9876543210987",
+            "SAMPLE-002",
+            "Beverages",
+            "Another sample product",
+            "3500",
+            "3000",
+            "2000",
+            "100",
+            "20",
+            "TRUE"
+        ]
+    ]
+
+    for row_idx, row_data in enumerate(sample_data, 2):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_products.cell(row=row_idx, column=col_idx, value=value)
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    # Adjust column widths
+    column_widths = [25, 18, 15, 15, 40, 15, 15, 15, 18, 15, 12]
+    for idx, width in enumerate(column_widths, 1):
+        ws_products.column_dimensions[get_column_letter(idx)].width = width
+
+    # Add note about sample data
+    note_row = len(sample_data) + 3
+    ws_products.cell(row=note_row, column=1,
+                     value="NOTE: Delete sample data before uploading. Add your products starting from row 2.")
+    ws_products.cell(row=note_row, column=1).font = Font(italic=True, color="FF0000")
+
+    # Categories Sheet (Reference)
+    ws_categories = wb.create_sheet("Categories")
+    ws_categories.cell(row=1, column=1, value="Available Categories")
+    ws_categories.cell(row=1, column=1).fill = header_fill
+    ws_categories.cell(row=1, column=1).font = header_font
+
+    categories = Category.objects.all().order_by('name')
+    for idx, category in enumerate(categories, 2):
+        ws_categories.cell(row=idx, column=1, value=category.name)
+
+    ws_categories.column_dimensions['A'].width = 30
+
+    # Prepare response
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response[
+        'Content-Disposition'] = f'attachment; filename="product_upload_template_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+
+    wb.save(response)
+    return response
+
+
+@staff_member_required
+def upload_products_bulk(request):
+    """
+    Handle bulk product upload from Excel file
+    """
+    if request.method == 'POST':
+        excel_file = request.FILES.get('excel_file')
+
+        if not excel_file:
+            messages.error(request, 'Please select an Excel file to upload.')
+            return render(request, 'admin/pos_app/product/upload_bulk.html')
+
+        if not excel_file.name.endswith(('.xlsx', '.xls')):
+            messages.error(request, 'Please upload a valid Excel file (.xlsx or .xls)')
+            return render(request, 'admin/pos_app/product/upload_bulk.html')
+
+        try:
+            # Load workbook
+            wb = openpyxl.load_workbook(excel_file)
+
+            # Check if Products sheet exists
+            if 'Products' not in wb.sheetnames:
+                messages.error(request, 'Excel file must contain a "Products" sheet. Please use the provided template.')
+                return render(request, 'admin/pos_app/product/upload_bulk.html')
+
+            ws = wb['Products']
+
+            # Validate headers
+            expected_headers = [
+                'name*', 'barcode*', 'sku*', 'category', 'description',
+                'retail_price*', 'wholesale_price*', 'cost_price*',
+                'quantity_in_stock*', 'reorder_level', 'is_active'
+            ]
+
+            actual_headers = [cell.value for cell in ws[1]]
+
+            if actual_headers[:11] != expected_headers:
+                messages.error(request, 'Excel file headers do not match template. Please download a fresh template.')
+                return render(request, 'admin/pos_app/product/upload_bulk.html')
+
+            # Process products
+            success_count = 0
+            error_count = 0
+            errors = []
+
+            with transaction.atomic():
+                for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                    # Skip empty rows
+                    if not any(row):
+                        continue
+
+                    try:
+                        # Extract data
+                        name = str(row[0]).strip() if row[0] else None
+                        barcode = str(row[1]).strip() if row[1] else None
+                        sku = str(row[2]).strip() if row[2] else None
+                        category_name = str(row[3]).strip() if row[3] else None
+                        description = str(row[4]).strip() if row[4] else ""
+                        retail_price = row[5]
+                        wholesale_price = row[6]
+                        cost_price = row[7]
+                        quantity_in_stock = row[8]
+                        reorder_level = row[9] if row[9] else 10
+                        is_active_str = str(row[10]).strip().upper() if row[10] else "TRUE"
+
+                        # Validate required fields
+                        if not all([name, barcode, sku]):
+                            errors.append(f"Row {row_idx}: Missing required fields (name, barcode, or sku)")
+                            error_count += 1
+                            continue
+
+                        # Check for duplicate barcode
+                        if Product.objects.filter(barcode=barcode).exists():
+                            errors.append(f"Row {row_idx}: Barcode '{barcode}' already exists")
+                            error_count += 1
+                            continue
+
+                        # Check for duplicate SKU
+                        if Product.objects.filter(sku=sku).exists():
+                            errors.append(f"Row {row_idx}: SKU '{sku}' already exists")
+                            error_count += 1
+                            continue
+
+                        # Get or create category
+                        category = None
+                        if category_name:
+                            category, _ = Category.objects.get_or_create(name=category_name)
+
+                        # Validate and convert prices
+                        try:
+                            retail_price = Decimal(str(retail_price))
+                            wholesale_price = Decimal(str(wholesale_price))
+                            cost_price = Decimal(str(cost_price))
+
+                            if retail_price <= 0 or wholesale_price <= 0 or cost_price <= 0:
+                                raise ValueError("Prices must be positive")
+                        except (ValueError, InvalidOperation, TypeError):
+                            errors.append(f"Row {row_idx}: Invalid price values")
+                            error_count += 1
+                            continue
+
+                        # Validate quantity
+                        try:
+                            quantity_in_stock = int(quantity_in_stock)
+                            reorder_level = int(reorder_level)
+
+                            if quantity_in_stock < 0 or reorder_level < 0:
+                                raise ValueError("Quantities must be non-negative")
+                        except (ValueError, TypeError):
+                            errors.append(f"Row {row_idx}: Invalid quantity values")
+                            error_count += 1
+                            continue
+
+                        # Parse is_active
+                        is_active = is_active_str in ['TRUE', 'YES', '1', 'Y']
+
+                        # Create product
+                        product = Product.objects.create(
+                            name=name,
+                            barcode=barcode,
+                            sku=sku,
+                            category=category,
+                            description=description,
+                            retail_price=retail_price,
+                            wholesale_price=wholesale_price,
+                            cost_price=cost_price,
+                            quantity_in_stock=quantity_in_stock,
+                            reorder_level=reorder_level,
+                            is_active=is_active,
+                            created_by=request.user,
+                            updated_by=request.user
+                        )
+
+                        success_count += 1
+
+                    except Exception as e:
+                        errors.append(f"Row {row_idx}: {str(e)}")
+                        error_count += 1
+
+            # Show results
+            if success_count > 0:
+                messages.success(request, f'Successfully imported {success_count} product(s)!')
+
+            if error_count > 0:
+                error_message = f'Failed to import {error_count} product(s). Errors:\n'
+                error_message += '\n'.join(errors[:20])  # Show first 20 errors
+                if len(errors) > 20:
+                    error_message += f'\n... and {len(errors) - 20} more errors'
+                messages.error(request, error_message)
+
+            if success_count > 0 and error_count == 0:
+                return redirect('admin:pos_app_product_changelist')
+
+        except Exception as e:
+            messages.error(request, f'Error processing file: {str(e)}')
+
+    return render(request, 'admin/pos_app/product/upload_bulk.html')
+
+
+@staff_member_required
+def export_products_excel(request):
+    """
+    Export all products to Excel
+    """
+    # Create workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Products"
+
+    # Styling
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+
+    # Headers
+    headers = [
+        "ID", "Name", "Barcode", "SKU", "Category",
+        "Description", "Retail Price", "Wholesale Price", "Cost Price",
+        "Quantity in Stock", "Reorder Level", "Active", "Created At", "Updated At"
+    ]
+
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Fetch products
+    products = Product.objects.select_related('category').all().order_by('name')
+
+    # Write data
+    for row_idx, product in enumerate(products, 2):
+        ws.cell(row=row_idx, column=1, value=product.id)
+        ws.cell(row=row_idx, column=2, value=product.name)
+        ws.cell(row=row_idx, column=3, value=product.barcode)
+        ws.cell(row=row_idx, column=4, value=product.sku)
+        ws.cell(row=row_idx, column=5, value=product.category.name if product.category else "")
+        ws.cell(row=row_idx, column=6, value=product.description)
+        ws.cell(row=row_idx, column=7, value=float(product.retail_price))
+        ws.cell(row=row_idx, column=8, value=float(product.wholesale_price))
+        ws.cell(row=row_idx, column=9, value=float(product.cost_price))
+        ws.cell(row=row_idx, column=10, value=product.quantity_in_stock)
+        ws.cell(row=row_idx, column=11, value=product.reorder_level)
+        ws.cell(row=row_idx, column=12, value="Yes" if product.is_active else "No")
+        ws.cell(row=row_idx, column=13, value=product.created_at.strftime('%Y-%m-%d %H:%M:%S'))
+        ws.cell(row=row_idx, column=14, value=product.updated_at.strftime('%Y-%m-%d %H:%M:%S'))
+
+    # Adjust column widths
+    column_widths = [8, 30, 18, 15, 20, 40, 15, 15, 15, 18, 15, 10, 20, 20]
+    for idx, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    # Prepare response
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response[
+        'Content-Disposition'] = f'attachment; filename="products_export_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+
+    wb.save(response)
+    return response

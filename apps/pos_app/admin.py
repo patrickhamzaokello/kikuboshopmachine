@@ -9,7 +9,9 @@ from .models import (
     Category, Product, ProductUpdateLog, Transaction,
     TransactionItem, SyncLog, UserDevice
 )
-
+from django.urls import path, reverse
+from django.utils.html import format_html
+from django.shortcuts import redirect
 
 # ==========================================
 # Category Admin
@@ -412,6 +414,43 @@ class ProductAdmin(admin.ModelAdmin):
             obj.created_by = request.user
         obj.updated_by = request.user
         super().save_model(request, obj, form, change)
+
+    # Add this method to show bulk upload button at the top
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['show_bulk_upload_button'] = True
+        return super().changelist_view(request, extra_context=extra_context)
+
+    # Override get_urls to add custom admin URLs
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('bulk-upload/',
+                 self.admin_site.admin_view(self.bulk_upload_view),
+                 name='pos_app_product_bulk_upload'),
+            path('download-template/',
+                 self.admin_site.admin_view(self.download_template_view),
+                 name='pos_app_product_download_template'),
+            path('export-excel/',
+                 self.admin_site.admin_view(self.export_excel_view),
+                 name='pos_app_product_export_excel'),
+        ]
+        return custom_urls + urls
+
+    def bulk_upload_view(self, request):
+        """Redirect to bulk upload page"""
+        from .views import upload_products_bulk
+        return upload_products_bulk(request)
+
+    def download_template_view(self, request):
+        """Download Excel template"""
+        from .views import download_product_template
+        return download_product_template(request)
+
+    def export_excel_view(self, request):
+        """Export products to Excel"""
+        from .views import export_products_excel
+        return export_products_excel(request)
 
 
 # ==========================================
