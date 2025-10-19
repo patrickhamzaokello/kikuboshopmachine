@@ -11,11 +11,11 @@ from kikuboposmachine import settings
 
 schema_view = get_schema_view(
     openapi.Info(
-        title="AEACBIO BACKEND",
+        title="KIKUBO POS MACHINE",
         default_version='v1',
         description="Test description",
-        terms_of_service="https://backend.aeacbio.com/terms/",
-        contact=openapi.Contact(email="contact@aeacbio.com"),
+        terms_of_service="https://kikubo.mwonya.com/terms/",
+        contact=openapi.Contact(email="contact@mwonya.com"),
         license=openapi.License(name="Test License"),
     ),
     public=True,
@@ -41,7 +41,7 @@ urlpatterns = [
     path('social_auth/', include(('apps.social_auth.urls', 'social_auth'), namespace="social_auth")),
 
 
-
+    path('pos/', include('apps.pos_app.urls')),
 
     # Swagger endpoints
     path('', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
