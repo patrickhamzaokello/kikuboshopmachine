@@ -33,7 +33,7 @@ GOOGLE_CLIENT_IDS = [
 APPLE_CLIENT_ID = "com.kikubo.mwonya"
 APPLE_CLIENT_IDS = ["com.kikubo.mwonya", "other.client.id"]  # List of valid client IDs
 
-CSRF_TRUSTED_ORIGINS = ["https://kikubo.mwonya.com"]
+CSRF_TRUSTED_ORIGINS = ["https://surelaces.mwonya.com"]
 
 AUTH_USER_MODEL = 'authentication.User'
 
