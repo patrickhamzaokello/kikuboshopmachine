@@ -53,7 +53,7 @@ THIRD_PARTY_APPS = [
     'corsheaders',
     'drf_yasg',
     'django_celery_results',
-    'django_celery_beat'
+    'django_celery_beat',
     'django_filters'
 ]
 
