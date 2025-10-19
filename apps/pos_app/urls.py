@@ -7,7 +7,10 @@ from .views import (
     TransactionViewSet,
     ProductUpdateLogViewSet,
     SyncLogViewSet,
-    UserDeviceViewSet
+    UserDeviceViewSet,
+    download_product_template,
+    upload_products_bulk,
+    export_products_excel
 )
 
 # Create router and register viewsets
@@ -23,4 +26,9 @@ router.register(r'devices', UserDeviceViewSet, basename='device')
 urlpatterns = [
     # Router URLs (includes all viewset endpoints)
     path('', include(router.urls)),
+
+    # Bulk upload URLs
+    path('products/download-template/', download_product_template, name='download_product_template'),
+    path('products/bulk-upload/', upload_products_bulk, name='upload_products_bulk'),
+    path('products/export-excel/', export_products_excel, name='export_products_excel'),
 ]
