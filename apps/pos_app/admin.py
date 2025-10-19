@@ -131,8 +131,7 @@ class ProductAdmin(admin.ModelAdmin):
         'stock_badge', 'profit_margin', 'is_active_badge', 'updated_at'
     ]
     list_filter = [
-        'is_active', 'category', 'created_at', 'updated_at',
-        ('quantity_in_stock', admin.EmptyFieldListFilter)
+        'is_active', 'category', 'created_at', 'updated_at'
     ]
     search_fields = ['name', 'sku', 'barcode', 'description']
     readonly_fields = [
