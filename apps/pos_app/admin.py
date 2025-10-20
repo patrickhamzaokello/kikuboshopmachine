@@ -181,7 +181,7 @@ class ProductAdmin(admin.ModelAdmin):
     retail_price_display.short_description = 'Retail Price'
     retail_price_display.admin_order_field = 'retail_price'
 
-     def wholesale_price_display(self, obj):
+    def wholesale_price_display(self, obj):        
         """Format wholesale price"""
         formatted_price = f'{obj.wholesale_price:,.0f}'
         return format_html('<span style="color: #2563eb; font-weight: 600;">UGX {}</span>', formatted_price)
