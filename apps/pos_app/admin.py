@@ -43,7 +43,7 @@ class CategoryAdmin(admin.ModelAdmin):
     def product_count(self, obj):
         """Total products in category"""
         count = obj.products.count()
-        url = reverse('admin:pos_product_changelist') + f'?category__id__exact={obj.id}'
+        url = reverse('admin:pos_app_product_changelist') + f'?category__id__exact={obj.id}'
         return format_html('<a href="{}">{} products</a>', url, count)
 
     product_count.short_description = 'Total Products'
