@@ -4,37 +4,57 @@ from .models import User
 from django.contrib import auth
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-from django.contrib.auth.tokens import  default_token_generator
+from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(max_length=68, min_length=6, write_only=True)
-    user_id = serializers.UUIDField(source='id', read_only=True)  # Map DB id → user_id
+    user_id = serializers.UUIDField(source='id', read_only=True)
     username = serializers.CharField(read_only=True)
+    role = serializers.ChoiceField(
+        choices=['salesperson', 'owner'],
+        default='salesperson',
+        help_text='User role: salesperson or owner'
+    )
+    store_name = serializers.CharField(
+        max_length=255,
+        required=False,
+        default='Default Store',
+        help_text='Name of the store'
+    )
 
     class Meta:
         model = User
-        fields = ['email', 'name', 'password', 'user_id', 'username']
+        fields = ['email', 'name', 'password', 'role', 'store_name', 'user_id', 'username']
         read_only_fields = ['user_id', 'username']
 
     def validate(self, attrs):
         email = attrs.get('email', '').lower()
         name = attrs.get('name', '')
+        role = attrs.get('role', 'salesperson')
 
         if not name:
             raise serializers.ValidationError({'name': 'Name is required'})
         if not email:
             raise serializers.ValidationError({'email': 'Email is required'})
+
+        # Validate role
+        if role not in ['salesperson', 'owner']:
+            raise serializers.ValidationError({'role': 'Role must be either "salesperson" or "owner"'})
+
         return attrs
 
     def create(self, validated_data):
-        # Only pass required fields to create_user
         return User.objects.create_user(
             name=validated_data['name'],
             email=validated_data['email'],
-            password=validated_data['password']
+            password=validated_data['password'],
+            role=validated_data.get('role', 'salesperson'),
+            store_name=validated_data.get('store_name', 'Default Store')
         )
+
 
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -44,7 +64,6 @@ class EmailVerificationSerializer(serializers.Serializer):
         fields = ['email', 'code']
 
     def validate_code(self, value):
-        # Ensure code is exactly 6 digits
         if not value.isdigit():
             raise serializers.ValidationError("Code must contain only digits")
         if len(value) != 6:
@@ -71,15 +90,16 @@ class LoginSerializer(serializers.ModelSerializer):
     username = serializers.CharField(read_only=True)
     user_id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True)
+    role = serializers.CharField(read_only=True)
+    store_name = serializers.CharField(read_only=True)
     tokens = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['email', 'name', 'password', 'username', 'user_id', 'tokens']
-        read_only_fields = ['name', 'username', 'user_id', 'tokens']
+        fields = ['email', 'name', 'password', 'username', 'user_id', 'role', 'store_name', 'tokens']
+        read_only_fields = ['name', 'username', 'user_id', 'role', 'store_name', 'tokens']
 
     def get_tokens(self, obj):
-        # Use the user from context
         user = self.context.get('user')
         if not user:
             raise serializers.ValidationError("User not found in context")
@@ -108,21 +128,27 @@ class LoginSerializer(serializers.ModelSerializer):
         # Store user in context for get_tokens
         self.context['user'] = user
 
-        # Return validated input attributes
         return attrs
 
     def to_representation(self, instance):
-        # instance is the validated attrs (email, password), but we use self.context['user']
+        """
+        Return user data with role and store info from their profile.
+        Role is NOT passed in login - it's retrieved from the database.
+        """
         user = self.context.get('user')
         if not user:
             raise serializers.ValidationError("User not found in context")
+
         return {
             'email': user.email,
             'name': user.name,
             'username': user.username,
-            'user_id': user.id,
+            'user_id': str(user.id),
+            'role': user.role,  # Retrieved from database, not user input
+            'store_name': user.store_name,  # Retrieved from database
             'tokens': self.get_tokens(user)
         }
+
 
 class ResetPasswordEmailRequestSerializer(serializers.Serializer):
     email = serializers.EmailField(min_length=2)
@@ -131,8 +157,8 @@ class ResetPasswordEmailRequestSerializer(serializers.Serializer):
         fields = ['email']
 
     def validate_email(self, value):
-        # Basic email validation is already done by EmailField
         return value.lower()
+
 
 class VerifyResetCodeSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -142,7 +168,6 @@ class VerifyResetCodeSerializer(serializers.Serializer):
         fields = ['email', 'code']
 
     def validate_code(self, value):
-        # Ensure code is exactly 6 digits
         if not value.isdigit():
             raise serializers.ValidationError("Code must contain only digits")
         if len(value) != 6:
@@ -154,18 +179,14 @@ class VerifyResetCodeSerializer(serializers.Serializer):
 
 
 class SetNewPasswordSerializer(serializers.Serializer):
-    password = serializers.CharField(
-        min_length=6, max_length=68, write_only=True)
-    token = serializers.CharField(
-        min_length=1, write_only=True)
-    uidb64 = serializers.CharField(
-        min_length=1, write_only=True)
+    password = serializers.CharField(min_length=6, max_length=68, write_only=True)
+    token = serializers.CharField(min_length=1, write_only=True)
+    uidb64 = serializers.CharField(min_length=1, write_only=True)
 
     class Meta:
         fields = ['password', 'token', 'uidb64']
 
     def validate_password(self, value):
-        # Add password strength validation if needed
         if len(value) < 6:
             raise serializers.ValidationError("Password must be at least 6 characters long")
         return value
@@ -180,11 +201,11 @@ class SetNewPasswordSerializer(serializers.Serializer):
             id = force_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(pk=id)
 
-            # Verify token using Django's default token generator
+            # Verify token
             if not default_token_generator.check_token(user, token):
                 raise AuthenticationFailed('The reset token is invalid or expired', 401)
 
-            # Check if reset session is valid
+            # Check reset session
             reset_session_key = f"reset_session_{user.pk}"
             session_data = cache.get(reset_session_key)
 
@@ -202,6 +223,7 @@ class SetNewPasswordSerializer(serializers.Serializer):
         except Exception as e:
             raise AuthenticationFailed('Password reset failed', 401)
 
+
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
@@ -214,13 +236,31 @@ class LogoutSerializer(serializers.Serializer):
             raise serializers.ValidationError("Token is expired or invalid")
 
     def save(self, **kwargs):
-        # Token already blacklisted during validation
         pass
 
 
-# Optional: Create a separate user profile serializer for getting user details
 class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer for getting/updating user profile"""
+    user_id = serializers.UUIDField(source='id', read_only=True)
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'name', 'email', 'phone', 'bio', 'is_verified', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'email', 'is_verified', 'created_at', 'updated_at']
+        fields = [
+            'user_id', 'username', 'name', 'email', 'phone', 'bio',
+            'role', 'store_name', 'is_verified', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'user_id', 'email', 'username', 'is_verified',
+            'created_at', 'updated_at'
+        ]
+
+    def validate_role(self, value):
+        """Only allow updating role if user is admin/owner"""
+        request = self.context.get('request')
+        if request and request.user:
+            # Only owners or superusers can change roles
+            if not (request.user.role == 'owner' or request.user.is_superuser):
+                raise serializers.ValidationError(
+                    "You don't have permission to change roles"
+                )
+        return value
