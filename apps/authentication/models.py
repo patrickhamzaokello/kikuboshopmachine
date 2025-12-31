@@ -78,13 +78,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         Store,
         on_delete=models.CASCADE,
         related_name='users',
-        help_text="Store the user belongs to"
+        help_text="Store the user belongs to",
+        null=True
     )
     role = models.ForeignKey(
         Role,
         on_delete=models.PROTECT,
         related_name='users',
-        help_text="User's role in the system"
+        help_text="User's role in the system",
+        null=True
     )
 
     is_verified = models.BooleanField(default=False)
