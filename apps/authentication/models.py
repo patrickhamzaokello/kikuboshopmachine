@@ -5,38 +5,38 @@ from rest_framework_simplejwt.tokens import RefreshToken
 import uuid
 import re
 
+from apps.pos_app.models import Store, Role
+
+
+# ============================================
+# USER MODELS
+# ============================================
 
 class UserManager(BaseUserManager):
-
     def _generate_username(self, name, email):
-        """
-        Generate a unique username based on the user's name or email.
-        """
-        # Clean the name to remove special characters and spaces
+        """Generate a unique username"""
         base = re.sub(r'[^a-zA-Z0-9]', '', name.lower().replace(' ', '')) or email.split('@')[0].lower()
-        username = base[:50]  # Limit length
-        # Ensure uniqueness by appending a number if necessary
+        username = base[:50]
         counter = 1
         while self.model.objects.filter(username=username).exists():
             username = f"{base}{counter}"
             counter += 1
         return username
 
-    def create_user(self, name, email, password=None, role='salesperson', store_name=None):
+    def create_user(self, name, email, password=None, store=None, role=None):
         if not email:
             raise TypeError('Users should have an email')
         if not name:
             raise TypeError('Users should have a name')
 
-        # Generate a unique username
         username = self._generate_username(name, email)
 
         user = self.model(
             username=username,
             email=self.normalize_email(email),
             name=name,
-            role=role,
-            store_name=store_name or 'Default Store'
+            store=store,
+            role=role
         )
         if password:
             user.set_password(password)
@@ -47,9 +47,10 @@ class UserManager(BaseUserManager):
         if not password:
             raise TypeError('Password should not be none')
 
-        user = self.create_user(name, email, password, role='owner')
+        user = self.create_user(name, email, password)
         user.is_superuser = True
         user.is_staff = True
+        user.is_verified = True
         user.save(using=self._db)
         return user
 
@@ -62,13 +63,9 @@ AUTH_PROVIDERS = {
     'apple': 'apple'
 }
 
-USER_ROLES = (
-    ('salesperson', 'Salesperson'),
-    ('owner', 'Store Owner'),
-)
-
 
 class User(AbstractBaseUser, PermissionsMixin):
+    """Extended User model with store and role"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = models.CharField(max_length=255, unique=True, db_index=True)
     name = models.CharField(max_length=255)
@@ -76,17 +73,18 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(max_length=255, blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
 
-    # New fields for sales app
-    role = models.CharField(
-        max_length=20,
-        choices=USER_ROLES,
-        default='salesperson',
-        help_text='User role in the sales system'
+    # Store and Role relationships
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name='users',
+        help_text="Store the user belongs to"
     )
-    store_name = models.CharField(
-        max_length=255,
-        default='Default Store',
-        help_text='Name of the store the user belongs to'
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.PROTECT,
+        related_name='users',
+        help_text="User's role in the system"
     )
 
     is_verified = models.BooleanField(default=False)
@@ -107,7 +105,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
 
     def __str__(self):
-        return f"{self.email} ({self.role})"
+        return f"{self.email} - {self.store.name} ({self.role.name})"
 
     def tokens(self):
         refresh = RefreshToken.for_user(self)
@@ -116,7 +114,14 @@ class User(AbstractBaseUser, PermissionsMixin):
             'access': str(refresh.access_token)
         }
 
+    @property
+    def is_owner(self):
+        return self.role.name == 'owner'
+
+    @property
+    def is_salesperson(self):
+        return self.role.name == 'salesperson'
+
     class Meta:
         ordering = ['-created_at']
-        verbose_name = 'User'
-        verbose_name_plural = 'Users'
+

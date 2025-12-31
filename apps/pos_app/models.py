@@ -1,203 +1,305 @@
+# models.py - Complete Sales App Models
 from django.db import models
-
-# Create your models here.
-from django.db import models
-from django.utils import timezone
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from rest_framework_simplejwt.tokens import RefreshToken
+import uuid
+import re
 from django.core.validators import MinValueValidator
 from decimal import Decimal
-import uuid
-from dateutil import parser
-from django.conf import settings
+
+from kikuboposmachine import settings
 
 
-class Category(models.Model):
-    """Product categories for better organization"""
-    name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True)
+# ============================================
+# STORE MODELS
+# ============================================
+
+class Store(models.Model):
+    """Store/Business entity"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255, unique=True, db_index=True)
+    code = models.CharField(max_length=50, unique=True, db_index=True,
+                            help_text="Unique store code (e.g., STORE001)")
+    address = models.TextField(blank=True, null=True)
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    tax_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=Decimal('0.1000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Default tax rate (e.g., 0.1000 for 10%)"
+    )
+    currency = models.CharField(max_length=3, default='USD', help_text="ISO currency code")
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name_plural = "Categories"
+        ordering = ['name']
+        verbose_name = 'Store'
+        verbose_name_plural = 'Stores'
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class Role(models.Model):
+    """User roles in the system"""
+    ROLE_CHOICES = (
+        ('salesperson', 'Salesperson'),
+        ('owner', 'Store Owner'),
+        ('manager', 'Store Manager'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
+    display_name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    permissions = models.JSONField(default=dict, help_text="Role-specific permissions")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
         ordering = ['name']
 
     def __str__(self):
-        return self.name
+        return self.display_name
+
+
+# ============================================
+# PRODUCT MODELS
+# ============================================
+
+class Category(models.Model):
+    """Product categories"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='categories')
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='subcategories'
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = ['store', 'name']
+        verbose_name_plural = 'Categories'
+
+    def __str__(self):
+        return f"{self.store.name} - {self.name}"
 
 
 class Product(models.Model):
-    """Main product model with retail and wholesale pricing"""
-    name = models.CharField(max_length=255, db_index=True)
-    barcode = models.CharField(max_length=100, unique=True, db_index=True)
-    sku = models.CharField(max_length=100, unique=True, db_index=True)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, related_name='products')
+    """Products in the store"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='products')
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products'
+    )
+
+    name = models.CharField(max_length=255)
+    code = models.CharField(max_length=100, db_index=True, help_text="SKU or product code")
     description = models.TextField(blank=True)
 
-    # Pricing
-    retail_price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
-    wholesale_price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
-    cost_price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)], default=0)
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))]
+    )
+    cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
 
-    # Stock management
-    quantity_in_stock = models.IntegerField(default=0, validators=[MinValueValidator(0)])
-    reorder_level = models.IntegerField(default=10)
+    stock = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Current stock quantity"
+    )
+    low_stock_threshold = models.IntegerField(
+        default=10,
+        validators=[MinValueValidator(0)],
+        help_text="Alert when stock falls below this"
+    )
 
-    # Status
-    is_active = models.BooleanField(default=True, db_index=True)
+    barcode = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    image_url = models.URLField(blank=True, null=True)
 
-    # Tracking
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True, db_index=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='products_created')
-    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='products_updated')
-
-    # Version tracking for sync
-    version = models.IntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_products'
+    )
 
     class Meta:
         ordering = ['name']
+        unique_together = ['store', 'code']
         indexes = [
-            models.Index(fields=['updated_at', 'is_active']),
-            models.Index(fields=['barcode', 'is_active']),
+            models.Index(fields=['store', 'is_active']),
+            models.Index(fields=['store', 'code']),
         ]
 
     def __str__(self):
-        return f"{self.name} ({self.sku})"
+        return f"{self.code} - {self.name}"
 
-    def save(self, *args, **kwargs):
-        if self.pk:
-            self.version += 1
-        super().save(*args, **kwargs)
-
-
-class ProductUpdateLog(models.Model):
-    """Tracks all changes to products for sync notifications"""
-    ACTION_CHOICES = [
-        ('CREATE', 'Created'),
-        ('UPDATE', 'Updated'),
-        ('DELETE', 'Deleted'),
-        ('STOCK_CHANGE', 'Stock Changed'),
-        ('PRICE_CHANGE', 'Price Changed'),
-    ]
-
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='update_logs')
-    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
-    changed_fields = models.JSONField(default=dict)  # Stores what changed
-    old_values = models.JSONField(default=dict)
-    new_values = models.JSONField(default=dict)
-    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
-    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-        indexes = [
-            models.Index(fields=['timestamp', 'action']),
-        ]
-
-    def __str__(self):
-        return f"{self.product.name} - {self.action} at {self.timestamp}"
+    @property
+    def is_low_stock(self):
+        return self.stock <= self.low_stock_threshold
 
 
-class Transaction(models.Model):
-    """Main transaction/sale record"""
-    TRANSACTION_TYPE_CHOICES = [
-        ('RETAIL', 'Retail'),
-        ('WHOLESALE', 'Wholesale'),
-    ]
+# ============================================
+# INVOICE MODELS
+# ============================================
 
-    PAYMENT_STATUS_CHOICES = [
-        ('PAID', 'Paid'),
-        ('UNPAID', 'Unpaid'),
-        ('PARTIAL', 'Partially Paid'),
-    ]
+class Invoice(models.Model):
+    """Sales invoices"""
+    SYNC_STATUS_CHOICES = (
+        ('PENDING', 'Pending Sync'),
+        ('SYNCED', 'Synced'),
+        ('FAILED', 'Failed'),
+    )
 
-    # Unique identifier for offline sync
-    transaction_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice_number = models.CharField(max_length=100, unique=True, db_index=True)
 
-    # Transaction details
-    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPE_CHOICES, default='RETAIL')
-    payment_status = models.CharField(max_length=10, choices=PAYMENT_STATUS_CHOICES, default='UNPAID')
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
+    salesperson = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='sales_invoices',
+        help_text="Salesperson who created this invoice"
+    )
 
-    # Amounts
-    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    tax = models.DecimalField(max_digits=12, decimal_places=2)
+    discount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00')
+    )
+    total = models.DecimalField(max_digits=12, decimal_places=2)
 
-    # Customer info (optional)
-    customer_name = models.CharField(max_length=255, blank=True)
-    customer_phone = models.CharField(max_length=20, blank=True)
+    customer_name = models.CharField(max_length=255, blank=True, null=True)
+    customer_phone = models.CharField(max_length=50, blank=True, null=True)
+    customer_email = models.EmailField(blank=True, null=True)
 
-    # User and timestamps
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='transactions')
-    created_at = models.DateTimeField(default=timezone.now, db_index=True)
-
-    # Sync tracking
-    is_synced = models.BooleanField(default=False, db_index=True)
-    synced_at = models.DateTimeField(null=True, blank=True)
-    created_offline = models.BooleanField(default=False)
-
-    # Notes
     notes = models.TextField(blank=True)
+
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='SYNCED'
+    )
+    synced_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['created_at', 'is_synced']),
-            models.Index(fields=['transaction_type', 'created_at']),
+            models.Index(fields=['store', 'created_at']),
+            models.Index(fields=['salesperson', 'created_at']),
+            models.Index(fields=['sync_status']),
         ]
 
     def __str__(self):
-        return f"Transaction {self.transaction_id} - {self.total_amount}"
+        return f"{self.invoice_number} - {self.salesperson.name}"
+
+    def calculate_totals(self):
+        """Recalculate totals from items"""
+        items = self.items.all()
+        self.subtotal = sum(item.total for item in items)
+        self.tax = self.subtotal * self.store.tax_rate
+        self.total = self.subtotal + self.tax - self.discount
+        return self.total
 
 
-class TransactionItem(models.Model):
-    """Individual items in a transaction"""
-    transaction = models.ForeignKey(Transaction, on_delete=models.CASCADE, related_name='items')
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='transaction_items')
+class InvoiceItem(models.Model):
+    """Items in an invoice"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        related_name='invoice_items'
+    )
 
-    # Item details at time of sale
-    product_name = models.CharField(max_length=255)  # Snapshot
-    product_sku = models.CharField(max_length=100)  # Snapshot
+    product_name = models.CharField(max_length=255, help_text="Product name at time of sale")
+    product_code = models.CharField(max_length=100, help_text="Product code at time of sale")
 
     quantity = models.IntegerField(validators=[MinValueValidator(1)])
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
-    line_total = models.DecimalField(max_digits=10, decimal_places=2)
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Price per unit at time of sale"
+    )
+    total = models.DecimalField(max_digits=12, decimal_places=2)
 
-    # Track which price was used
-    price_type = models.CharField(max_length=10, choices=[('RETAIL', 'Retail'), ('WHOLESALE', 'Wholesale')])
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['id']
+        ordering = ['created_at']
 
     def __str__(self):
-        return f"{self.product_name} x {self.quantity}"
+        return f"{self.invoice.invoice_number} - {self.product_code}"
 
     def save(self, *args, **kwargs):
-        self.line_total = self.quantity * self.unit_price
+        # Calculate total
+        self.total = self.quantity * self.price
         super().save(*args, **kwargs)
 
 
+# ============================================
+# SYNC LOG MODELS
+# ============================================
+
 class SyncLog(models.Model):
-    """Tracks sync operations for debugging and monitoring"""
-    SYNC_TYPE_CHOICES = [
-        ('PRODUCTS_PULL', 'Products Pull'),
-        ('TRANSACTIONS_PUSH', 'Transactions Push'),
-        ('FULL_SYNC', 'Full Sync'),
-    ]
+    """Log of sync operations"""
+    SYNC_TYPE_CHOICES = (
+        ('invoice', 'Invoice Sync'),
+        ('product', 'Product Sync'),
+        ('full', 'Full Sync'),
+    )
 
-    STATUS_CHOICES = [
-        ('SUCCESS', 'Success'),
-        ('FAILED', 'Failed'),
-        ('PARTIAL', 'Partial'),
-    ]
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    )
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sync_logs')
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='sync_logs')
+
     sync_type = models.CharField(max_length=20, choices=SYNC_TYPE_CHOICES)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
 
     items_synced = models.IntegerField(default=0)
-    errors = models.JSONField(default=list)
+    items_failed = models.IntegerField(default=0)
+
+    error_message = models.TextField(blank=True)
+    details = models.JSONField(default=dict)
 
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -206,23 +308,29 @@ class SyncLog(models.Model):
         ordering = ['-started_at']
 
     def __str__(self):
-        return f"{self.sync_type} - {self.status} at {self.started_at}"
+        return f"{self.sync_type} - {self.user.name} - {self.status}"
 
 
-class UserDevice(models.Model):
-    """Track devices for better offline sync management"""
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='devices')
-    device_id = models.CharField(max_length=255, unique=True)
-    device_name = models.CharField(max_length=255)
+# ============================================
+# ANALYTICS MODELS
+# ============================================
 
-    last_sync_at = models.DateTimeField(null=True, blank=True)
-    last_product_version_synced = models.IntegerField(default=0)
+class DailySales(models.Model):
+    """Aggregated daily sales data"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='daily_sales')
+    date = models.DateField(db_index=True)
 
-    is_active = models.BooleanField(default=True)
+    total_sales = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    invoice_count = models.IntegerField(default=0)
+    items_sold = models.IntegerField(default=0)
+
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-last_sync_at']
+        unique_together = ['store', 'date']
+        ordering = ['-date']
 
     def __str__(self):
-        return f"{self.user.username} - {self.device_name}"
+        return f"{self.store.name} - {self.date}"

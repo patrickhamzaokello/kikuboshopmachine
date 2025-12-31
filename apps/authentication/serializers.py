@@ -8,52 +8,159 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 
+from ..pos_app.models import Store, Role
+
+
+# ============================================
+# USER/AUTH SERIALIZERS
+# ============================================
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(max_length=68, min_length=6, write_only=True)
     user_id = serializers.UUIDField(source='id', read_only=True)
     username = serializers.CharField(read_only=True)
-    role = serializers.ChoiceField(
-        choices=['salesperson', 'owner'],
-        default='salesperson',
-        help_text='User role: salesperson or owner'
-    )
-    store_name = serializers.CharField(
-        max_length=255,
-        required=False,
-        default='Default Store',
-        help_text='Name of the store'
-    )
+    store_id = serializers.UUIDField(write_only=True, required=True)
+    role_id = serializers.UUIDField(write_only=True, required=True)
+    store_name = serializers.CharField(source='store.name', read_only=True)
+    role_name = serializers.CharField(source='role.name', read_only=True)
 
     class Meta:
         model = User
-        fields = ['email', 'name', 'password', 'role', 'store_name', 'user_id', 'username']
-        read_only_fields = ['user_id', 'username']
+        fields = [
+            'email', 'name', 'password', 'phone',
+            'store_id', 'role_id', 'user_id', 'username',
+            'store_name', 'role_name'
+        ]
+        read_only_fields = ['user_id', 'username', 'store_name', 'role_name']
 
     def validate(self, attrs):
         email = attrs.get('email', '').lower()
         name = attrs.get('name', '')
-        role = attrs.get('role', 'salesperson')
+        store_id = attrs.get('store_id')
+        role_id = attrs.get('role_id')
 
         if not name:
             raise serializers.ValidationError({'name': 'Name is required'})
         if not email:
             raise serializers.ValidationError({'email': 'Email is required'})
 
-        # Validate role
-        if role not in ['salesperson', 'owner']:
-            raise serializers.ValidationError({'role': 'Role must be either "salesperson" or "owner"'})
+        # Validate store exists and is active
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+            attrs['store'] = store
+        except Store.DoesNotExist:
+            raise serializers.ValidationError({'store_id': 'Invalid or inactive store'})
+
+        # Validate role exists
+        try:
+            role = Role.objects.get(id=role_id)
+            attrs['role'] = role
+        except Role.DoesNotExist:
+            raise serializers.ValidationError({'role_id': 'Invalid role'})
 
         return attrs
 
     def create(self, validated_data):
+        # Remove store_id and role_id from validated_data (already have store and role objects)
+        validated_data.pop('store_id', None)
+        validated_data.pop('role_id', None)
+
         return User.objects.create_user(
             name=validated_data['name'],
             email=validated_data['email'],
             password=validated_data['password'],
-            role=validated_data.get('role', 'salesperson'),
-            store_name=validated_data.get('store_name', 'Default Store')
+            store=validated_data['store'],
+            role=validated_data['role']
         )
+
+
+class LoginSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(max_length=255, min_length=3)
+    password = serializers.CharField(max_length=68, min_length=6, write_only=True)
+    username = serializers.CharField(read_only=True)
+    user_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    store_id = serializers.UUIDField(read_only=True)
+    store_name = serializers.CharField(read_only=True)
+    role = serializers.CharField(read_only=True)
+    tokens = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'email', 'name', 'password', 'username', 'user_id',
+            'store_id', 'store_name', 'role', 'tokens'
+        ]
+        read_only_fields = ['name', 'username', 'user_id', 'store_id', 'store_name', 'role', 'tokens']
+
+    def get_tokens(self, obj):
+        user = self.context.get('user')
+        if not user:
+            raise serializers.ValidationError("User not found in context")
+        return user.tokens()
+
+    def validate(self, attrs):
+        email = attrs.get('email', '').lower()
+        password = attrs.get('password', '')
+
+        # Check auth provider
+        filtered_user_by_email = User.objects.filter(email=email)
+        if filtered_user_by_email.exists() and filtered_user_by_email[0].auth_provider != 'email':
+            raise AuthenticationFailed(
+                f"Please continue your login using {filtered_user_by_email[0].auth_provider}"
+            )
+
+        # Authenticate
+        user = auth.authenticate(email=email, password=password)
+        if not user:
+            raise AuthenticationFailed('Invalid credentials, try again')
+        if not user.is_active:
+            raise AuthenticationFailed('Account disabled, contact admin')
+        if not user.is_verified:
+            raise AuthenticationFailed('Email is not verified')
+        if not user.store.is_active:
+            raise AuthenticationFailed('Store is inactive, contact admin')
+
+        # Store user in context
+        self.context['user'] = user
+        return attrs
+
+    def to_representation(self, instance):
+        user = self.context.get('user')
+        if not user:
+            raise serializers.ValidationError("User not found in context")
+
+        return {
+            'email': user.email,
+            'name': user.name,
+            'username': user.username,
+            'user_id': str(user.id),
+            'store_id': str(user.store.id),
+            'store_name': user.store.name,
+            'role': user.role.name,
+            'tokens': self.get_tokens(user)
+        }
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    user_id = serializers.UUIDField(source='id', read_only=True)
+    store_name = serializers.CharField(source='store.name', read_only=True)
+    store_id = serializers.UUIDField(source='store.id', read_only=True)
+    role_name = serializers.CharField(source='role.name', read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'user_id', 'username', 'name', 'email', 'phone', 'bio',
+            'store_id', 'store_name', 'role_name',
+            'is_verified', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'user_id', 'email', 'username', 'is_verified',
+            'store_id', 'store_name', 'role_name',
+            'created_at', 'updated_at'
+        ]
+
 
 
 class EmailVerificationSerializer(serializers.Serializer):
@@ -84,70 +191,7 @@ class ResendVerificationCodeSerializer(serializers.Serializer):
         return value.lower()
 
 
-class LoginSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(max_length=255, min_length=3)
-    password = serializers.CharField(max_length=68, min_length=6, write_only=True)
-    username = serializers.CharField(read_only=True)
-    user_id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(read_only=True)
-    role = serializers.CharField(read_only=True)
-    store_name = serializers.CharField(read_only=True)
-    tokens = serializers.SerializerMethodField()
 
-    class Meta:
-        model = User
-        fields = ['email', 'name', 'password', 'username', 'user_id', 'role', 'store_name', 'tokens']
-        read_only_fields = ['name', 'username', 'user_id', 'role', 'store_name', 'tokens']
-
-    def get_tokens(self, obj):
-        user = self.context.get('user')
-        if not user:
-            raise serializers.ValidationError("User not found in context")
-        return user.tokens()
-
-    def validate(self, attrs):
-        email = attrs.get('email', '').lower()
-        password = attrs.get('password', '')
-
-        # Check auth provider
-        filtered_user_by_email = User.objects.filter(email=email)
-        if filtered_user_by_email.exists() and filtered_user_by_email[0].auth_provider != 'email':
-            raise AuthenticationFailed(
-                f"Please continue your login using {filtered_user_by_email[0].auth_provider}"
-            )
-
-        # Authenticate
-        user = auth.authenticate(email=email, password=password)
-        if not user:
-            raise AuthenticationFailed('Invalid credentials, try again')
-        if not user.is_active:
-            raise AuthenticationFailed('Account disabled, contact admin')
-        if not user.is_verified:
-            raise AuthenticationFailed('Email is not verified')
-
-        # Store user in context for get_tokens
-        self.context['user'] = user
-
-        return attrs
-
-    def to_representation(self, instance):
-        """
-        Return user data with role and store info from their profile.
-        Role is NOT passed in login - it's retrieved from the database.
-        """
-        user = self.context.get('user')
-        if not user:
-            raise serializers.ValidationError("User not found in context")
-
-        return {
-            'email': user.email,
-            'name': user.name,
-            'username': user.username,
-            'user_id': str(user.id),
-            'role': user.role,  # Retrieved from database, not user input
-            'store_name': user.store_name,  # Retrieved from database
-            'tokens': self.get_tokens(user)
-        }
 
 
 class ResetPasswordEmailRequestSerializer(serializers.Serializer):
@@ -238,29 +282,3 @@ class LogoutSerializer(serializers.Serializer):
     def save(self, **kwargs):
         pass
 
-
-class UserProfileSerializer(serializers.ModelSerializer):
-    """Serializer for getting/updating user profile"""
-    user_id = serializers.UUIDField(source='id', read_only=True)
-
-    class Meta:
-        model = User
-        fields = [
-            'user_id', 'username', 'name', 'email', 'phone', 'bio',
-            'role', 'store_name', 'is_verified', 'created_at', 'updated_at'
-        ]
-        read_only_fields = [
-            'user_id', 'email', 'username', 'is_verified',
-            'created_at', 'updated_at'
-        ]
-
-    def validate_role(self, value):
-        """Only allow updating role if user is admin/owner"""
-        request = self.context.get('request')
-        if request and request.user:
-            # Only owners or superusers can change roles
-            if not (request.user.role == 'owner' or request.user.is_superuser):
-                raise serializers.ValidationError(
-                    "You don't have permission to change roles"
-                )
-        return value
