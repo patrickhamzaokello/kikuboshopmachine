@@ -252,7 +252,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': config('REDIS_DATABASE_SERVER_HOST'),
+         'LOCATION': config('REDIS_DATABASE_SERVER_HOST'),
+        'KEY_PREFIX': 'surelaces',
     }
 }
 
