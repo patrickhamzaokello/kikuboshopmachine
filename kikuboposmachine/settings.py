@@ -122,8 +122,8 @@ DATABASES = {
         'PORT': config('PG_PORT', default='5432'),
     }
 }
-CELERY_BROKER_URL = f"redis://:{config('REDIS_PASSWORD')}@shared_redis:6379/2"
-CELERY_RESULT_BACKEND = f"redis://:{config('REDIS_PASSWORD')}@shared_redis:6379/2"
+CELERY_BROKER_URL = config('REDIS_DATABASE_SERVER_HOST')
+CELERY_RESULT_BACKEND = config('REDIS_DATABASE_SERVER_HOST')
 # Celery task settings
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -252,7 +252,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': f"redis://:{config('REDIS_PASSWORD')}@shared_redis:6379/2",
+        'LOCATION': config('REDIS_DATABASE_SERVER_HOST'),
     }
 }
 
