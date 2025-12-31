@@ -115,15 +115,15 @@ WSGI_APPLICATION = 'kikuboposmachine.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': config('DB_DRIVER', default='django.db.backends.postgresql'),
-        'NAME': config('POSTGRES_DB'),
+        'NAME': config('KIKUBO_DB_NAME'),
         'USER': config('POSTGRES_USER'),
         'PASSWORD': config('POSTGRES_PASSWORD'),
         'HOST': config('PG_HOST'),
         'PORT': config('PG_PORT', default='5432'),
     }
 }
-CELERY_BROKER_URL = f"redis://:{config('REDIS_PASSWORD')}@redis:6379/0"
-CELERY_RESULT_BACKEND = f"redis://:{config('REDIS_PASSWORD')}@redis:6379/2"
+CELERY_BROKER_URL = f"redis://:{config('REDIS_PASSWORD')}@shared_redis:6379/2"
+CELERY_RESULT_BACKEND = f"redis://:{config('REDIS_PASSWORD')}@shared_redis:6379/2"
 # Celery task settings
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -252,7 +252,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': f"redis://:{config('REDIS_PASSWORD')}@redis:6379/1",
+        'LOCATION': f"redis://:{config('REDIS_PASSWORD')}@shared_redis:6379/2",
     }
 }
 

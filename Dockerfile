@@ -28,4 +28,4 @@ COPY .. .
 COPY django.sh /django.sh
 RUN chmod +x /django.sh
 
-EXPOSE 6200
+EXPOSE 6300

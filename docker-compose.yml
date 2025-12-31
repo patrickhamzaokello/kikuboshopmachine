@@ -29,7 +29,7 @@ services:
       - kikubo_network
       - shared-pk-network
     ports:
-      - "${APP_PORT:-6200}:6200"
+      - "${APP_PORT:-6300}:6300"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
