@@ -43,7 +43,7 @@ class CategoryAdmin(admin.ModelAdmin):
     def product_count(self, obj):
         """Total products in category"""
         count = obj.products.count()
-        url = reverse('admin:pos_product_changelist') + f'?category__id__exact={obj.id}'
+        url = reverse('admin:pos_app_product_changelist') + f'?category__id__exact={obj.id}'
         return format_html('<a href="{}">{} products</a>', url, count)
 
     product_count.short_description = 'Total Products'
@@ -61,9 +61,10 @@ class CategoryAdmin(admin.ModelAdmin):
         total = obj.products.filter(is_active=True).aggregate(
             value=Sum(F('quantity_in_stock') * F('retail_price'))
         )['value'] or 0
-        return format_html('<span style="color: #2563eb;">UGX {:,.0f}</span>', total)
-
+        formatted_value = f'{total:,.0f}'
+        return format_html('<span style="color: #2563eb;">UGX {}</span>', formatted_value)
     total_stock_value.short_description = 'Stock Value'
+    
 
     def category_stats(self, obj):
         """Display detailed category statistics"""
@@ -174,15 +175,17 @@ class ProductAdmin(admin.ModelAdmin):
 
     def retail_price_display(self, obj):
         """Format retail price"""
-        return format_html('<span style="color: #16a34a; font-weight: 600;">UGX {:,.0f}</span>', obj.retail_price)
-
+        formatted_price = f'{obj.retail_price:,.0f}'
+        return format_html('<span style="color: #16a34a; font-weight: 600;">UGX {}</span>', formatted_price)
+        
     retail_price_display.short_description = 'Retail Price'
     retail_price_display.admin_order_field = 'retail_price'
 
-    def wholesale_price_display(self, obj):
+    def wholesale_price_display(self, obj):        
         """Format wholesale price"""
-        return format_html('<span style="color: #2563eb; font-weight: 600;">UGX {:,.0f}</span>', obj.wholesale_price)
-
+        formatted_price = f'{obj.wholesale_price:,.0f}'
+        return format_html('<span style="color: #2563eb; font-weight: 600;">UGX {}</span>', formatted_price)
+     
     wholesale_price_display.short_description = 'Wholesale Price'
     wholesale_price_display.admin_order_field = 'wholesale_price'
 
@@ -215,9 +218,10 @@ class ProductAdmin(admin.ModelAdmin):
         if obj.cost_price > 0:
             margin = ((obj.retail_price - obj.cost_price) / obj.cost_price) * 100
             color = '#16a34a' if margin > 30 else '#d97706' if margin > 15 else '#dc2626'
+            formatted_margin = f'{margin:.1f}'
             return format_html(
-                '<span style="color: {}; font-weight: 600;">{:.1f}%</span>',
-                color, margin
+                '<span style="color: {}; font-weight: 600;">{}%</span>',
+                color, formatted_margin
             )
         return format_html('<span style="color: #6b7280;">N/A</span>')
 
@@ -673,9 +677,10 @@ class TransactionAdmin(admin.ModelAdmin):
 
     def total_amount_display(self, obj):
         """Format total amount"""
+        formatted_amount = f'{obj.total_amount:,.0f}'
         return format_html(
-            '<span style="color: #16a34a; font-weight: 700; font-size: 14px;">UGX {:,.0f}</span>',
-            obj.total_amount
+            '<span style="color: #16a34a; font-weight: 700; font-size: 14px;">UGX {}</span>',
+            formatted_amount
         )
 
     total_amount_display.short_description = 'Total'
