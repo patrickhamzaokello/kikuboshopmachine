@@ -1,4 +1,5 @@
 # serializers.py - Complete Serializers
+from django.utils import timezone
 from rest_framework import serializers
 from django.contrib import auth
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
@@ -378,32 +379,148 @@ class InvoiceListSerializer(serializers.ModelSerializer):
         return obj.items.count()
 
 
+# serializers.py - Add this new serializer for bulk sync
+
+class BulkInvoiceItemSerializer(serializers.Serializer):
+    """Serializer for invoice items in bulk sync - accepts UUIDs"""
+    product = serializers.UUIDField()
+    product_name = serializers.CharField(max_length=255)
+    product_code = serializers.CharField(max_length=100)
+    quantity = serializers.IntegerField(min_value=1)
+    price = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01)
+    total = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+
+    def validate_product(self, value):
+        """Validate that product exists and belongs to user's store"""
+        request = self.context.get('request')
+        try:
+            product = Product.objects.get(id=value, store=request.user.store, is_active=True)
+            return product
+        except Product.DoesNotExist:
+            raise ValidationError(f'"{value}" is not a valid UUID.')
+
+    def validate(self, attrs):
+        # Calculate total if not provided
+        if 'total' not in attrs or attrs['total'] is None:
+            attrs['total'] = attrs['quantity'] * attrs['price']
+        return attrs
+
+
+class BulkInvoiceSerializer(serializers.Serializer):
+    """Serializer for individual invoice in bulk sync - accepts UUIDs"""
+    id = serializers.CharField(required=False)  # Local ID, optional
+    createdAt = serializers.DateTimeField(required=False)
+    invoice_number = serializers.CharField(max_length=100)
+    salesperson = serializers.UUIDField()
+    salespersonName = serializers.CharField(required=False)  # Optional, for display
+    subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+    tax = serializers.DecimalField(max_digits=12, decimal_places=2)
+    discount = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    customer_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    customer_phone = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    customer_email = serializers.EmailField(required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    syncStatus = serializers.CharField(required=False)  # Expected to be 'PENDING'
+    items = BulkInvoiceItemSerializer(many=True)
+
+    def validate_salesperson(self, value):
+        """Validate that salesperson exists and belongs to same store"""
+        request = self.context.get('request')
+        try:
+            user = User.objects.get(id=value, store=request.user.store, is_active=True)
+            return user
+        except User.DoesNotExist:
+            raise ValidationError(f'"{value}" is not a valid UUID.')
+
+    def validate_invoice_number(self, value):
+        """Check if invoice number already exists"""
+        request = self.context.get('request')
+        if Invoice.objects.filter(invoice_number=value, store=request.user.store).exists():
+            raise ValidationError(f'Invoice with number "{value}" already exists.')
+        return value
+
+    def validate(self, attrs):
+        """Additional validation"""
+        # Validate items
+        if not attrs.get('items'):
+            raise ValidationError({'items': 'At least one item is required.'})
+
+        # Validate stock for all items
+        for item_data in attrs['items']:
+            product = item_data['product']
+            quantity = item_data['quantity']
+
+            if product.stock < quantity:
+                raise ValidationError({
+                    'items': f'Insufficient stock for {product.code}. Available: {product.stock}, Requested: {quantity}'
+                })
+
+        return attrs
+
+
 class BulkInvoiceSyncSerializer(serializers.Serializer):
     """For syncing multiple invoices from offline mode"""
-    invoices = InvoiceSerializer(many=True)
+    invoices = BulkInvoiceSerializer(many=True)
 
     def create(self, validated_data):
         invoices_data = validated_data.get('invoices', [])
         synced_invoices = []
         failed_invoices = []
 
+        request = self.context.get('request')
+        store = request.user.store
+
         for invoice_data in invoices_data:
             try:
-                serializer = InvoiceSerializer(data=invoice_data, context=self.context)
-                if serializer.is_valid():
-                    invoice = serializer.save()
-                    invoice.sync_status = 'SYNCED'
-                    invoice.save()
-                    synced_invoices.append(invoice)
-                else:
-                    failed_invoices.append({
-                        'invoice_number': invoice_data.get('invoice_number'),
-                        'errors': serializer.errors
-                    })
+                # Extract items data
+                items_data = invoice_data.pop('items')
+
+                # Remove fields not in Invoice model
+                invoice_data.pop('id', None)  # Remove local ID
+                invoice_data.pop('createdAt', None)
+                invoice_data.pop('salespersonName', None)
+                invoice_data.pop('syncStatus', None)
+
+                # Create invoice
+                invoice = Invoice.objects.create(
+                    store=store,
+                    sync_status='SYNCED',
+                    synced_at=timezone.now(),
+                    **invoice_data
+                )
+
+                # Create invoice items and update stock
+                for item_data in items_data:
+                    product = item_data['product']
+                    quantity = item_data['quantity']
+
+                    # Create invoice item
+                    InvoiceItem.objects.create(
+                        invoice=invoice,
+                        product=product,
+                        product_name=item_data['product_name'],
+                        product_code=item_data['product_code'],
+                        quantity=quantity,
+                        price=item_data['price'],
+                        total=item_data['total']
+                    )
+
+                    # Update product stock
+                    product.stock -= quantity
+                    product.save()
+
+                synced_invoices.append(invoice)
+
+            except ValidationError as e:
+                failed_invoices.append({
+                    'invoice_number': invoice_data.get('invoice_number', 'Unknown'),
+                    'errors': e.detail if hasattr(e, 'detail') else str(e)
+                })
             except Exception as e:
                 failed_invoices.append({
-                    'invoice_number': invoice_data.get('invoice_number'),
-                    'error': str(e)
+                    'invoice_number': invoice_data.get('invoice_number', 'Unknown'),
+                    'errors': {'error': str(e)}
                 })
 
         return {
@@ -411,7 +528,6 @@ class BulkInvoiceSyncSerializer(serializers.Serializer):
             'failed': len(failed_invoices),
             'failed_invoices': failed_invoices
         }
-
 
 # ============================================
 # ANALYTICS SERIALIZERS
