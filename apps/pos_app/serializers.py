@@ -276,15 +276,15 @@ class ProductListSerializer(serializers.ModelSerializer):
 # ============================================
 # INVOICE SERIALIZERS
 # ============================================
-
 class InvoiceItemSerializer(serializers.ModelSerializer):
+    """Full invoice item serializer with all fields"""
     class Meta:
         model = InvoiceItem
         fields = [
             'id', 'product', 'product_name', 'product_code',
-            'quantity', 'price', 'total'
+            'quantity', 'price', 'total', 'created_at'
         ]
-        read_only_fields = ['id', 'total']
+        read_only_fields = ['id', 'total', 'created_at']
 
     def validate(self, attrs):
         product = attrs.get('product')
@@ -307,7 +307,8 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
-    items = InvoiceItemSerializer(many=True)
+    """Full invoice serializer with nested items"""
+    items = InvoiceItemSerializer(many=True, read_only=False)
     salesperson_name = serializers.CharField(source='salesperson.name', read_only=True)
     store_name = serializers.CharField(source='store.name', read_only=True)
 
@@ -364,22 +365,22 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
 
 class InvoiceListSerializer(serializers.ModelSerializer):
-    """Minimal invoice info for listings"""
+    """Invoice list serializer - NOW WITH ITEMS!"""
     salesperson_name = serializers.CharField(source='salesperson.name', read_only=True)
+    items = InvoiceItemSerializer(many=True, read_only=True)  # Add this!
     item_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = [
-            'id', 'invoice_number', 'salesperson_name',
-            'total', 'item_count', 'sync_status', 'created_at'
+            'id', 'invoice_number', 'salesperson', 'salesperson_name',
+            'items',  # Add this!
+            'subtotal', 'tax', 'discount', 'total',
+            'item_count', 'sync_status', 'created_at'
         ]
 
     def get_item_count(self, obj):
         return obj.items.count()
-
-
-# serializers.py - Add this new serializer for bulk sync
 
 class BulkInvoiceItemSerializer(serializers.Serializer):
     """Serializer for invoice items in bulk sync - accepts UUIDs"""

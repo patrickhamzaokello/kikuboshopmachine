@@ -136,6 +136,7 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 # INVOICE VIEWS
 # ============================================
 
+
 class InvoiceListCreateView(generics.ListCreateAPIView):
     """List and create invoices"""
     permission_classes = [permissions.IsAuthenticated]
@@ -166,6 +167,9 @@ class InvoiceListCreateView(generics.ListCreateAPIView):
         if end_date:
             queryset = queryset.filter(created_at__lte=end_date)
 
+        # IMPORTANT: Prefetch items for performance
+        queryset = queryset.prefetch_related('items')
+
         return queryset
 
 
@@ -181,6 +185,9 @@ class InvoiceDetailView(generics.RetrieveAPIView):
         # Salespeople only see their own invoices
         if user.role.name == 'salesperson':
             queryset = queryset.filter(salesperson=user)
+
+        # IMPORTANT: Prefetch items for performance
+        queryset = queryset.prefetch_related('items')
 
         return queryset
 
