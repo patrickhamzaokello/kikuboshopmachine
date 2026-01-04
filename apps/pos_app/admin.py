@@ -9,6 +9,7 @@ from .models import (
     Store, Role, Category, Product,
     Invoice, InvoiceItem, SyncLog, DailySales
 )
+from django.urls import path
 
 
 @admin.register(Store)
