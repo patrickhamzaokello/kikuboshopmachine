@@ -15,18 +15,18 @@ urlpatterns = [
     # ============================================
     # AUTHENTICATION ENDPOINTS
     # ============================================
-    path('auth/register/', RegisterView.as_view(), name='register'),
-    path('auth/login/', LoginAPIView.as_view(), name='login'),
-    path('auth/logout/', LogoutAPIView.as_view(), name='logout'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('register/', RegisterView.as_view(), name='register'),
+    path('login/', LoginAPIView.as_view(), name='login'),
+    path('logout/', LogoutAPIView.as_view(), name='logout'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # Email verification
-    path('auth/verify-email/', VerifyEmailAPIView.as_view(), name='verify-email'),
-    path('auth/resend-verification-code/', ResendVerificationCodeAPIView.as_view(), name='resend-verification-code'),
+    path('verify-email/', VerifyEmailAPIView.as_view(), name='verify-email'),
+    path('resend-verification-code/', ResendVerificationCodeAPIView.as_view(), name='resend-verification-code'),
 
     # Password reset
-    path('auth/request-reset-email/', RequestPasswordResetEmail.as_view(), name='request-reset-email'),
-    path('auth/verify-reset-code/', VerifyResetCodeAPIView.as_view(), name='verify-reset-code'),
-    path('auth/password-reset-complete/', SetNewPasswordAPIView.as_view(), name='password-reset-complete'),
+    path('request-reset-email/', RequestPasswordResetEmail.as_view(), name='request-reset-email'),
+    path('verify-reset-code/', VerifyResetCodeAPIView.as_view(), name='verify-reset-code'),
+    path('password-reset-complete/', SetNewPasswordAPIView.as_view(), name='password-reset-complete'),
 
 ]
