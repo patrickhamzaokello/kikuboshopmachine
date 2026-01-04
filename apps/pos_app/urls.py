@@ -1,7 +1,7 @@
-# urls.py
+# pos_app/urls.py
+
 from django.urls import path
 from .views import (
-
     # Store & Role views
     StoreListView, StoreDetailView, RoleListView,
 
@@ -25,9 +25,13 @@ from .views import (
     health_check,
 )
 
-app_name = 'sales'
+app_name = 'pos_app'
 
 urlpatterns = [
+    # ============================================
+    # UTILITY ENDPOINTS (Place first for priority)
+    # ============================================
+    path('health/', health_check, name='health-check'),
 
     # ============================================
     # STORE & ROLE ENDPOINTS
@@ -37,22 +41,26 @@ urlpatterns = [
     path('roles/', RoleListView.as_view(), name='role-list'),
 
     # ============================================
-    # PRODUCT ENDPOINTS
+    # CATEGORY ENDPOINTS
     # ============================================
-    path('products/', ProductListCreateView.as_view(), name='product-list-create'),
-    path('products/<uuid:pk>/', ProductDetailView.as_view(), name='product-detail'),
-    path('products/low-stock/', LowStockProductsView.as_view(), name='low-stock-products'),
-
-    # Categories
     path('categories/', CategoryListCreateView.as_view(), name='category-list-create'),
     path('categories/<uuid:pk>/', CategoryDetailView.as_view(), name='category-detail'),
 
     # ============================================
-    # INVOICE ENDPOINTS
+    # PRODUCT ENDPOINTS
+    # NOTE: Specific paths MUST come before generic UUID paths
     # ============================================
+    path('products/low-stock/', LowStockProductsView.as_view(), name='low-stock-products'),
+    path('products/', ProductListCreateView.as_view(), name='product-list-create'),
+    path('products/<uuid:pk>/', ProductDetailView.as_view(), name='product-detail'),
+
+    # ============================================
+    # INVOICE ENDPOINTS
+    # NOTE: Specific paths MUST come before generic UUID paths
+    # ============================================
+    path('invoices/bulk-sync/', BulkInvoiceSyncView.as_view(), name='invoice-bulk-sync'),
     path('invoices/', InvoiceListCreateView.as_view(), name='invoice-list-create'),
     path('invoices/<uuid:pk>/', InvoiceDetailView.as_view(), name='invoice-detail'),
-    path('invoices/bulk-sync/', BulkInvoiceSyncView.as_view(), name='invoice-bulk-sync'),
 
     # ============================================
     # DASHBOARD & ANALYTICS ENDPOINTS
@@ -71,9 +79,4 @@ urlpatterns = [
     # PROFILE ENDPOINTS
     # ============================================
     path('profile/', UserProfileView.as_view(), name='user-profile'),
-
-    # ============================================
-    # UTILITY ENDPOINTS
-    # ============================================
-    path('health/', health_check, name='health-check'),
 ]
