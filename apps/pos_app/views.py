@@ -13,18 +13,14 @@ from .models import (
 )
 from .serializers import (
     StoreSerializer, StoreListSerializer, RoleSerializer,
-    RegisterSerializer, LoginSerializer, UserProfileSerializer,
     CategorySerializer, ProductSerializer, ProductListSerializer,
     InvoiceSerializer, InvoiceListSerializer, BulkInvoiceSyncSerializer,
     DashboardStatsSerializer, SalesReportSerializer, ProductReportSerializer,
-    SyncLogSerializer
+    SyncLogSerializer, UserProfileSerializer
 )
 from .permissions import IsOwner, IsOwnerOrReadOnly, IsSameStore
 
 
-# ============================================
-# STORE VIEWS
-# ============================================
 
 class StoreListView(generics.ListAPIView):
     """List all active stores (for registration)"""
@@ -48,18 +44,6 @@ class RoleListView(generics.ListAPIView):
     serializer_class = RoleSerializer
     permission_classes = []  # Public endpoint for registration
 
-
-# ============================================
-# AUTHENTICATION VIEWS (from your existing code)
-# ============================================
-
-# Keep all your existing auth views (RegisterView, LoginAPIView, etc.)
-# Just update RegisterSerializer usage to include store_id and role_id
-
-
-# ============================================
-# PRODUCT VIEWS
-# ============================================
 
 class ProductListCreateView(generics.ListCreateAPIView):
     """List and create products"""
@@ -107,10 +91,6 @@ class LowStockProductsView(generics.ListAPIView):
         ).filter(stock__lte=F('low_stock_threshold'))
 
 
-# ============================================
-# CATEGORY VIEWS
-# ============================================
-
 class CategoryListCreateView(generics.ListCreateAPIView):
     """List and create categories"""
     serializer_class = CategorySerializer
@@ -130,11 +110,6 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Category.objects.filter(store=self.request.user.store)
-
-
-# ============================================
-# INVOICE VIEWS
-# ============================================
 
 
 class InvoiceListCreateView(generics.ListCreateAPIView):
@@ -216,10 +191,6 @@ class BulkInvoiceSyncView(generics.CreateAPIView):
 
         return Response(result, status=status.HTTP_200_OK)
 
-
-# ============================================
-# DASHBOARD & ANALYTICS VIEWS
-# ============================================
 
 class DashboardStatsView(views.APIView):
     """Get dashboard statistics"""
@@ -370,10 +341,6 @@ class ProductReportView(views.APIView):
         return Response(serializer.data)
 
 
-# ============================================
-# SYNC VIEWS
-# ============================================
-
 class SyncStatusView(views.APIView):
     """Get sync status for user"""
     permission_classes = [permissions.IsAuthenticated]
@@ -411,11 +378,6 @@ class SyncHistoryView(generics.ListAPIView):
         return SyncLog.objects.filter(
             user=self.request.user
         ).order_by('-started_at')[:20]
-
-
-# ============================================
-# PROFILE VIEWS
-# ============================================
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     """Get and update user profile"""

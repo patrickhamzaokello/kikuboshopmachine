@@ -1,18 +1,12 @@
-# models.py - Complete Sales App Models
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
-from rest_framework_simplejwt.tokens import RefreshToken
 import uuid
-import re
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 
 from kikuboposmachine import settings
 
 
-# ============================================
-# STORE MODELS
-# ============================================
 
 class Store(models.Model):
     """Store/Business entity"""
@@ -67,9 +61,6 @@ class Role(models.Model):
         return self.display_name
 
 
-# ============================================
-# PRODUCT MODELS
-# ============================================
 
 class Category(models.Model):
     """Product categories"""
@@ -166,9 +157,6 @@ class Product(models.Model):
         return self.stock <= self.low_stock_threshold
 
 
-# ============================================
-# INVOICE MODELS
-# ============================================
 
 class Invoice(models.Model):
     """Sales invoices"""
@@ -269,10 +257,6 @@ class InvoiceItem(models.Model):
         super().save(*args, **kwargs)
 
 
-# ============================================
-# SYNC LOG MODELS
-# ============================================
-
 class SyncLog(models.Model):
     """Log of sync operations"""
     SYNC_TYPE_CHOICES = (
@@ -311,9 +295,6 @@ class SyncLog(models.Model):
         return f"{self.sync_type} - {self.user.name} - {self.status}"
 
 
-# ============================================
-# ANALYTICS MODELS
-# ============================================
 
 class DailySales(models.Model):
     """Aggregated daily sales data"""

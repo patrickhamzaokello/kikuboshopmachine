@@ -11,9 +11,6 @@ from django.utils.http import urlsafe_base64_decode
 from ..pos_app.models import Store, Role
 
 
-# ============================================
-# USER/AUTH SERIALIZERS
-# ============================================
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(max_length=68, min_length=6, write_only=True)
@@ -140,26 +137,6 @@ class LoginSerializer(serializers.ModelSerializer):
             'role': user.role.name,
             'tokens': self.get_tokens(user)
         }
-
-
-class UserProfileSerializer(serializers.ModelSerializer):
-    user_id = serializers.UUIDField(source='id', read_only=True)
-    store_name = serializers.CharField(source='store.name', read_only=True)
-    store_id = serializers.UUIDField(source='store.id', read_only=True)
-    role_name = serializers.CharField(source='role.name', read_only=True)
-
-    class Meta:
-        model = User
-        fields = [
-            'user_id', 'username', 'name', 'email', 'phone', 'bio',
-            'store_id', 'store_name', 'role_name',
-            'is_verified', 'created_at', 'updated_at'
-        ]
-        read_only_fields = [
-            'user_id', 'email', 'username', 'is_verified',
-            'store_id', 'store_name', 'role_name',
-            'created_at', 'updated_at'
-        ]
 
 
 
