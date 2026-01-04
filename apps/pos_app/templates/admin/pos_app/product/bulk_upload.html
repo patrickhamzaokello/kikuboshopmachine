@@ -37,14 +37,14 @@
             Download the Excel template with sample data and instructions
         </p>
         
-        <a href="{% url 'download_product_template' %}" 
-           style="display: inline-block; background: #16a34a; color: white; padding: 12px 24px; 
+        <a href="{% url 'admin:pos_app_product_download_template' %}"
+           style="display: inline-block; background: #16a34a; color: white; padding: 12px 24px;
                   border-radius: 6px; text-decoration: none; font-weight: 600; transition: background 0.2s;"
-           onmouseover="this.style.background='#15803d'" 
+           onmouseover="this.style.background='#15803d'"
            onmouseout="this.style.background='#16a34a'">
             ⬇️ Download Excel Template
         </a>
-        
+
         <div style="margin-top: 15px; padding: 12px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
             <p style="margin: 0; color: #92400e; font-size: 14px;">
                 <strong>💡 Tip:</strong> The template includes sample data. Delete the sample rows before uploading your actual products.
@@ -63,43 +63,43 @@
 
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
-            
+
             <div style="margin-bottom: 20px;">
-                <label for="excel_file" 
+                <label for="excel_file"
                        style="display: block; color: #374151; font-weight: 600; margin-bottom: 8px;">
                     Select Excel File *
                 </label>
-                
+
                 <div style="position: relative;">
-                    <input type="file" 
-                           id="excel_file" 
-                           name="excel_file" 
+                    <input type="file"
+                           id="excel_file"
+                           name="excel_file"
                            accept=".xlsx,.xls"
                            required
-                           style="display: block; width: 100%; padding: 10px; border: 2px solid #d1d5db; 
+                           style="display: block; width: 100%; padding: 10px; border: 2px solid #d1d5db;
                                   border-radius: 6px; font-size: 14px; cursor: pointer;"
                            onchange="updateFileName(this)">
                 </div>
-                
+
                 <p id="file-name" style="margin-top: 8px; color: #6b7280; font-size: 14px; font-style: italic;">
                     No file selected
                 </p>
             </div>
 
             <div style="display: flex; gap: 10px; align-items: center;">
-                <button type="submit" 
-                        style="background: #2563eb; color: white; padding: 12px 30px; border: none; 
-                               border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; 
+                <button type="submit"
+                        style="background: #2563eb; color: white; padding: 12px 30px; border: none;
+                               border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer;
                                transition: background 0.2s;"
-                        onmouseover="this.style.background='#1d4ed8'" 
+                        onmouseover="this.style.background='#1d4ed8'"
                         onmouseout="this.style.background='#2563eb'">
                     📤 Upload Products
                 </button>
-                
-                <a href="{% url 'admin:pos_app_product_changelist' %}" 
-                   style="color: #6b7280; text-decoration: none; padding: 12px 20px; 
+
+                <a href="{% url 'admin:pos_app_product_changelist' %}"
+                   style="color: #6b7280; text-decoration: none; padding: 12px 20px;
                           border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;"
-                   onmouseover="this.style.background='#f3f4f6'" 
+                   onmouseover="this.style.background='#f3f4f6'"
                    onmouseout="this.style.background='transparent'">
                     Cancel
                 </a>
@@ -127,9 +127,9 @@
         <h3 style="color: #1f2937; margin-bottom: 15px; font-size: 16px;">
             📊 Additional Actions
         </h3>
-        
+
         <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-            <a href="{% url 'export_products_excel' %}" 
+            <a href="{% url 'admin:pos_app_product_export_excel' %}"
                style="display: inline-block; background: #7c3aed; color: white; padding: 10px 20px; 
                       border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;"
                onmouseover="this.style.background='#6d28d9'" 

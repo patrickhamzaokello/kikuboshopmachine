@@ -662,13 +662,16 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
-
-
 @staff_member_required
 def download_product_template(request):
     """
     Download Excel template for bulk product upload with instructions and sample data.
     """
+    # Check if user has a store (skip for superusers)
+    if not request.user.is_superuser and not request.user.store:
+        messages.error(request, 'You must be assigned to a store to download the template.')
+        return redirect('admin:pos_app_product_changelist')
+
     wb = Workbook()
 
     # Remove default sheet
@@ -745,6 +748,12 @@ def download_product_template(request):
     # Style headers
     header_fill = PatternFill(start_color='16A34A', end_color='16A34A', fill_type='solid')
     header_font = Font(bold=True, color='FFFFFF', size=11)
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
 
     for col_num, header in enumerate(headers, 1):
         cell = ws_products.cell(row=1, column=col_num)
@@ -752,14 +761,6 @@ def download_product_template(request):
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal='center', vertical='center')
-
-        # Add borders
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
         cell.border = thin_border
 
     # Sample data
@@ -778,8 +779,6 @@ def download_product_template(request):
             cell.value = value
             cell.alignment = Alignment(horizontal='left', vertical='center')
             cell.border = thin_border
-
-            # Gray background for sample data
             cell.fill = PatternFill(start_color='F9FAFB', end_color='F9FAFB', fill_type='solid')
 
     # Set column widths
@@ -812,11 +811,19 @@ def download_product_template(request):
 
     # Get categories from database
     from .models import Category
-    categories = Category.objects.filter(is_active=True).select_related('store').order_by('store__name', 'name')
+
+    # For superusers, show all categories; for others, only their store
+    if request.user.is_superuser:
+        categories = Category.objects.filter(is_active=True).select_related('store').order_by('store__name', 'name')
+    else:
+        categories = Category.objects.filter(
+            is_active=True,
+            store=request.user.store
+        ).select_related('store').order_by('name')
 
     for idx, category in enumerate(categories, 2):
         ws_categories[f'A{idx}'] = category.name
-        ws_categories[f'B{idx}'] = category.store.name
+        ws_categories[f'B{idx}'] = category.store.name if category.store else 'N/A'
 
         ws_categories[f'A{idx}'].alignment = Alignment(horizontal='left', vertical='center')
         ws_categories[f'B{idx}'].alignment = Alignment(horizontal='left', vertical='center')
@@ -840,6 +847,11 @@ def bulk_upload_products(request):
     Handle bulk product upload from Excel file.
     """
     from .models import Product, Category
+
+    # Check if user has a store (skip for superusers)
+    if not request.user.is_superuser and not request.user.store:
+        messages.error(request, 'You must be assigned to a store to upload products.')
+        return redirect('admin:pos_app_product_changelist')
 
     if request.method == 'POST':
         excel_file = request.FILES.get('excel_file')
@@ -997,10 +1009,18 @@ def export_products_excel(request):
     """
     from .models import Product
 
+    # Check if user has a store (skip for superusers)
+    if not request.user.is_superuser and not request.user.store:
+        messages.error(request, 'You must be assigned to a store to export products.')
+        return redirect('admin:pos_app_product_changelist')
+
     # Get user's store products
-    products = Product.objects.filter(
-        store=request.user.store
-    ).select_related('category', 'store').order_by('code')
+    if request.user.is_superuser:
+        products = Product.objects.all().select_related('category', 'store').order_by('store__name', 'code')
+    else:
+        products = Product.objects.filter(
+            store=request.user.store
+        ).select_related('category', 'store').order_by('code')
 
     # Create workbook
     wb = Workbook()
@@ -1052,7 +1072,15 @@ def export_products_excel(request):
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    response['Content-Disposition'] = f'attachment; filename=products_export_{request.user.store.code}.xlsx'
+
+    # Safe filename
+    if request.user.is_superuser:
+        filename = 'products_export_all.xlsx'
+    else:
+        store_code = request.user.store.code if request.user.store else 'unknown'
+        filename = f'products_export_{store_code}.xlsx'
+
+    response['Content-Disposition'] = f'attachment; filename={filename}'
 
     wb.save(response)
     return response
