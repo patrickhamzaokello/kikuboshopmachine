@@ -133,7 +133,10 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    """Admin interface for Product model"""
+    """Admin interface for Product model with bulk upload"""
+
+    # IMPORTANT: Set custom template for product list
+    change_list_template = 'admin/pos_app/product/change_list.html'
 
     list_display = [
         'code', 'name', 'store', 'category', 'price',
@@ -165,6 +168,39 @@ class ProductAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+    actions = ['export_as_csv', 'mark_as_active', 'mark_as_inactive']
+
+    def get_urls(self):
+        """Add custom URLs for bulk operations"""
+        urls = super().get_urls()
+        custom_urls = [
+            path('download-template/',
+                 self.admin_site.admin_view(self.download_template_view),
+                 name='pos_app_product_download_template'),
+            path('bulk-upload/',
+                 self.admin_site.admin_view(self.bulk_upload_view),
+                 name='pos_app_product_bulk_upload'),
+            path('export-excel/',
+                 self.admin_site.admin_view(self.export_excel_view),
+                 name='pos_app_product_export_excel'),
+        ]
+        return custom_urls + urls
+
+    def download_template_view(self, request):
+        """Wrapper for download template view"""
+        from .views import download_product_template
+        return download_product_template(request)
+
+    def bulk_upload_view(self, request):
+        """Wrapper for bulk upload view"""
+        from .views import bulk_upload_products
+        return bulk_upload_products(request)
+
+    def export_excel_view(self, request):
+        """Wrapper for export excel view"""
+        from .views import export_products_excel
+        return export_products_excel(request)
 
     def stock_status(self, obj):
         """Display stock status with color coding"""
@@ -199,7 +235,33 @@ class ProductAdmin(admin.ModelAdmin):
 
     profit_margin.short_description = 'Profit Margin'
 
-    actions = ['mark_as_active', 'mark_as_inactive']
+    def export_as_csv(self, request, queryset):
+        """Export selected products as CSV"""
+        import csv
+        from django.http import HttpResponse
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename=products_export.csv'
+        writer = csv.writer(response)
+
+        # Write header
+        writer.writerow(['code', 'name', 'category', 'price', 'cost', 'stock', 'barcode'])
+
+        # Write data
+        for obj in queryset:
+            writer.writerow([
+                obj.code,
+                obj.name,
+                obj.category.name if obj.category else '',
+                obj.price,
+                obj.cost or '',
+                obj.stock,
+                obj.barcode or ''
+            ])
+
+        return response
+
+    export_as_csv.short_description = 'Export selected as CSV'
 
     def mark_as_active(self, request, queryset):
         """Bulk action to activate products"""
