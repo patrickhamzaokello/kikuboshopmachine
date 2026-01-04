@@ -306,7 +306,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     """Admin interface for Invoice model"""
 
     list_display = [
-        'invoice_number', 'store', 'salesperson',
+        'invoice_number', 'store', 'salesperson_display',
         'item_count', 'total', 'sync_status_badge', 'created_at'
     ]
     list_filter = ['store', 'sync_status', 'created_at', 'salesperson']
@@ -316,7 +316,8 @@ class InvoiceAdmin(admin.ModelAdmin):
     ]
     readonly_fields = [
         'id', 'subtotal', 'tax', 'total',
-        'synced_at', 'created_at', 'updated_at', 'item_summary'
+        'synced_at', 'created_at', 'updated_at',
+        'item_summary', 'sync_status_display'  # Add display method to readonly
     ]
     autocomplete_fields = ['store', 'salesperson']
     inlines = [InvoiceItemInline]
@@ -324,7 +325,7 @@ class InvoiceAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Invoice Information', {
-            'fields': ('id', 'invoice_number', 'store', 'salesperson', 'sync_status_badge')
+            'fields': ('id', 'invoice_number', 'store', 'salesperson')
         }),
         ('Customer Information', {
             'fields': ('customer_name', 'customer_phone', 'customer_email'),
@@ -341,7 +342,7 @@ class InvoiceAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         ('Sync Information', {
-            'fields': ('sync_status', 'synced_at'),
+            'fields': ('sync_status', 'sync_status_display', 'synced_at'),  # Use both field and display
             'classes': ('collapse',)
         }),
         ('Timestamps', {
@@ -350,8 +351,23 @@ class InvoiceAdmin(admin.ModelAdmin):
         }),
     )
 
+    def salesperson_display(self, obj):
+        """Safely display salesperson name"""
+        if obj.salesperson:
+            try:
+                name = getattr(obj.salesperson, 'name', None)
+                if name:
+                    return name
+                return getattr(obj.salesperson, 'email', None) or getattr(obj.salesperson, 'username', 'Unknown')
+            except Exception:
+                return 'Unknown'
+        return format_html('<span style="color: red;">No Salesperson</span>')
+
+    salesperson_display.short_description = 'Salesperson'
+    salesperson_display.admin_order_field = 'salesperson'
+
     def sync_status_badge(self, obj):
-        """Display sync status with color coding"""
+        """Display sync status with color coding (for list display)"""
         status_config = {
             'PENDING': ('orange', '⏳'),
             'SYNCED': ('green', '✓'),
@@ -367,40 +383,76 @@ class InvoiceAdmin(admin.ModelAdmin):
 
     sync_status_badge.short_description = 'Sync Status'
 
+    def sync_status_display(self, obj):
+        """Display sync status for detail view (readonly field)"""
+        status_config = {
+            'PENDING': ('orange', '⏳', 'Pending Sync'),
+            'SYNCED': ('green', '✓', 'Synced'),
+            'FAILED': ('red', '✗', 'Failed')
+        }
+        color, icon, text = status_config.get(obj.sync_status, ('gray', '?', 'Unknown'))
+        return format_html(
+            '<div style="padding: 10px; background: #f9fafb; border-left: 4px solid {}; border-radius: 4px;">'
+            '<span style="color: {}; font-weight: bold; font-size: 16px;">{} {}</span>'
+            '</div>',
+            color,
+            color,
+            icon,
+            text
+        )
+
+    sync_status_display.short_description = 'Current Sync Status'
+
     def item_count(self, obj):
         """Display count of items in invoice"""
-        count = obj.items.count()
-        return format_html(
-            '<span style="font-weight: bold;">{} item(s)</span>',
-            count
-        )
+        try:
+            count = obj.items.count()
+            return format_html(
+                '<span style="font-weight: bold;">{} item(s)</span>',
+                count
+            )
+        except Exception:
+            return format_html('<span style="color: gray;">N/A</span>')
 
     item_count.short_description = 'Items'
 
     def item_summary(self, obj):
         """Display detailed item summary"""
-        items = obj.items.all()
-        if not items:
-            return format_html('<span style="color: gray;">No items</span>')
+        try:
+            items = obj.items.all()
+            if not items:
+                return format_html('<span style="color: gray;">No items</span>')
 
-        html = '<table style="width: 100%; border-collapse: collapse;">'
-        html += '<tr style="background: #f8f8f8; font-weight: bold;">'
-        html += '<th style="padding: 8px; text-align: left;">Product</th>'
-        html += '<th style="padding: 8px; text-align: center;">Qty</th>'
-        html += '<th style="padding: 8px; text-align: right;">Price</th>'
-        html += '<th style="padding: 8px; text-align: right;">Total</th>'
-        html += '</tr>'
+            currency = 'UGX'
+            if hasattr(obj, 'store') and obj.store:
+                currency = getattr(obj.store, 'currency', 'UGX')
 
-        for item in items:
-            html += '<tr style="border-bottom: 1px solid #ddd;">'
-            html += f'<td style="padding: 8px;">{item.product_name} ({item.product_code})</td>'
-            html += f'<td style="padding: 8px; text-align: center;">{item.quantity}</td>'
-            html += f'<td style="padding: 8px; text-align: right;">{obj.store.currency} {item.price:,.2f}</td>'
-            html += f'<td style="padding: 8px; text-align: right;">{obj.store.currency} {item.total:,.2f}</td>'
+            html = '<table style="width: 100%; border-collapse: collapse;">'
+            html += '<tr style="background: #f8f8f8; font-weight: bold;">'
+            html += '<th style="padding: 8px; text-align: left;">Product</th>'
+            html += '<th style="padding: 8px; text-align: center;">Qty</th>'
+            html += '<th style="padding: 8px; text-align: right;">Price</th>'
+            html += '<th style="padding: 8px; text-align: right;">Total</th>'
             html += '</tr>'
 
-        html += '</table>'
-        return mark_safe(html)
+            for item in items:
+                html += '<tr style="border-bottom: 1px solid #ddd;">'
+                product_name = getattr(item, 'product_name', 'Unknown')
+                product_code = getattr(item, 'product_code', 'N/A')
+                quantity = getattr(item, 'quantity', 0)
+                price = getattr(item, 'price', 0)
+                total = getattr(item, 'total', 0)
+
+                html += f'<td style="padding: 8px;">{product_name} ({product_code})</td>'
+                html += f'<td style="padding: 8px; text-align: center;">{quantity}</td>'
+                html += f'<td style="padding: 8px; text-align: right;">{currency} {price:,.2f}</td>'
+                html += f'<td style="padding: 8px; text-align: right;">{currency} {total:,.2f}</td>'
+                html += '</tr>'
+
+            html += '</table>'
+            return mark_safe(html)
+        except Exception as e:
+            return format_html('<span style="color: red;">Error loading items: {}</span>', str(e))
 
     item_summary.short_description = 'Item Details'
 
