@@ -1,4 +1,4 @@
-# views.py - Complete API Views
+# views.py
 from rest_framework import generics, status, views, permissions, filters
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes

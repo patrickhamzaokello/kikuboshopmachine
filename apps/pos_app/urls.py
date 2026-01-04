@@ -1,4 +1,4 @@
-# urls.py - Complete URL Configuration
+# urls.py
 from django.urls import path
 from .views import (
 

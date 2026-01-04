@@ -1,4 +1,4 @@
-# admin.py - Django Admin Configuration
+# admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
